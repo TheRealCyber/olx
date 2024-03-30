@@ -1,4 +1,3 @@
-
 from getpass import getpass
 import time
 import datetime
@@ -6,11 +5,6 @@ import re
 import sqlite3
 from getpass import getpass
 import hashlib
-
-# def connect_db():
-#         conn = sqlite3.connect('olx.db')
-#         return conn
-# conn = connect_db()
 
 class Register:
     def __init__(self, *args):
@@ -49,7 +43,7 @@ class Register:
             elif variable.lower() == "username":
                 while True:
                     username = input(f"Enter {variable} (alphanumeric): ")
-                    if username.isalnum():  # Allow alphanumeric usernames
+                    if username.isalnum():
                         self.data[variable] = username
                         break
                     else:
@@ -85,7 +79,6 @@ class Register:
         finally:
             self.conn.close()
 
-
 class Login:
     def __init__(self, username, password, conn=None):
         self.username = username
@@ -98,44 +91,41 @@ class Login:
     def check_authentication(self):
         try:
             hashed_password = self.hash_password(self.password)
-            print("Hashed password:", hashed_password)  # Debugging statement
             cursor = self.conn.cursor()
             cursor.execute("SELECT * FROM Users WHERE username = ?", (self.username,))
             user_data = cursor.fetchone()
             if user_data:
-                stored_password_hash = user_data[2]  # Assuming password hash is stored in the third column
+                stored_password_hash = user_data[2]
                 if hashed_password == stored_password_hash:
-                    print("Authentication successful!")
-                    return user_data[4]  # Return user_type
+                    return user_data[5], True
                 else:
                     print("Invalid password.")
-                    return None  # Return None for invalid password
+                    return None, False
             else:
                 print("User not found.")
-                return None  # Return None for user not found
+                return None, False
         except sqlite3.Error as e:
             print("Authentication failed:", e)
-            return None  # Return None for authentication failure
-
-
-
+            return None, False
 
 class Mainmenu:
     def __init__(self, acc_type):
         self.acc_type = acc_type
 
     def menu(self):
+        print("User type:", self.acc_type)
         if self.acc_type == 'buyer':
             Buyer_Interface().menu()
         elif self.acc_type == 'seller':
             Seller_Interface().menu()
-            
+        else:
+            print("Invalid account type:", self.acc_type)
+
     def clear_data(self):
         try:
             conn = sqlite3.connect('olx.db')
             cursor = conn.cursor()
-            # Execute SQL query to clear data from tables
-            cursor.execute("DELETE FROM Users")  # Example query to delete all data from the Users table
+            cursor.execute("DELETE FROM Users")
             conn.commit()
             print("Data cleared successfully.")
         except sqlite3.Error as e:
@@ -143,14 +133,11 @@ class Mainmenu:
         finally:
             conn.close()
 
-
-
 class Buyer_Interface:
     def __init__(self):
         self.exit = 1
-        self.cart = set()  # Initialize cart as a set
+        self.cart = set()
         self.item_list = {"0": "Couch", "1": "Table", "2": "TV", "3": "Xbox", "4": "Bed"}
-        #Items list has been hardcoded which will later be linked to seller's item list
 
     def goto_menu(self):
         menu = Mainmenu('buyer')
@@ -181,8 +168,6 @@ class Buyer_Interface:
         for x in self.item_list.keys():
             print(x + " > " + self.item_list[x])
 
-
-#This retains the key value pairs when added into the cart, so system can later distinguish between different products with the same name using their "PRODUCT ID" which would be the dictionary key
     def add_to_cart(self):
         self.print_items()
         item_index = input("\nEnter the index of the item to add to cart: ")
@@ -193,16 +178,14 @@ class Buyer_Interface:
             print("Invalid item index.")
     
     def view_cart(self):
-        if not self.cart: #checks for empty cart
+        if not self.cart:
             print("\nCart is empty")
         else:
             print("\nItems in your cart:")
             for item_index in self.cart:
                 print(self.item_list[item_index])
-                #prints only the values, but the keys are retained in the backend as well
 
     def purchase_items(self):
-        
         menu_input=input("\nWould you like to purchase one item from global market\nOr purchase the entire cart\n0 - Purchase one item\n1 - Purchase entire cart\n")
         match menu_input:
             case '0':
@@ -212,16 +195,13 @@ class Buyer_Interface:
                     print(f"{self.item_list[item_index]} successfully purchased! Thank you!")
                 else:
                     print("Invalid item index.")
-                
             case '1':
                 if not self.cart:
                     print("\nCart is empty. Add items before purchasing.")
                     return
-                
                 print("\nItems in your cart:")
                 for item_index in self.cart:
                     print(self.item_list[item_index])
-                
                 print("\nPurchase successful. Thank you for shopping!")
                 self.cart.clear()
             case _:
@@ -233,7 +213,7 @@ class Buyer_Interface:
         print(f"Starting chat with product owner of {self.item_list[item_index]}\n")
         print("The listed price for this product is Rupees 250, you may attempt to negotiate by entering prices you deem fit")
         print("Enter 0 if you wish to return to menu and end the chat")
-        target_price = 250  # Listed price
+        target_price = 250
         user_bid = float(input("Enter your initial bid: "))
         print(int(user_bid))
         if (int(user_bid!='0')):
@@ -360,48 +340,59 @@ class Seller_Interface:
         choice = input("Do you want to accept this offer? (yes/no): ")
         if choice.lower() == 'yes':
             print(f"\nProduct '{self.listing[item_index][0]}' sold at negotiated price of Rs. {seller_price}.")
-            del self.listing[item_index]  # Remove item from listing after it's sold
+            del self.listing[item_index]
         else:
             print("Negotiation failed. Returning to menu...")
 
 if __name__ == "__main__":
-    exit = 1
-    registration = None
-    menu = Mainmenu(None)
+    exit_program = False
 
-    while exit == 1:
+    while not exit_program:
         menu_input = input('Enter the option you wish to execute\n0 - Register new user\n1 - Log in for an existing user\n2 - Exit\n3 - Admin testing\n4 - Clear data from database\n')
-        match menu_input:
-            case '0':
-                registration = Register("username", "password", "email", "ph_no", "address", "acc_type")
-                registration.register_user()
-                obfuscated_data = registration.data.copy()
-                obfuscated_data["password"] = "*" * len(registration.data["password"])
-                print("Registered Data:", obfuscated_data)
-            case '1':
-                username = input("Login Username: ")
-                password = input("Login Password: ")
-                conn = sqlite3.connect('olx.db')  # Open database connection
-                login_attempt = Login(username, password, conn)
-                user_type = login_attempt.check_authentication()
-                if user_type:
-                    print("Valid authentication")
-                    menu.acc_type = user_type
-                    menu.menu()
-                    exit = 0
-                else:
-                    print("Invalid authentication")
-                    conn.close()  # Close database connection in case of authentication failure
-            case '2':
-                exit = 0
-                print("The program is exiting now")
-            case '3':
-                print("Admin testing functionality\nEnter acc type\n")
-                acc_type = input()
-                menu.acc_type = acc_type
-                menu.menu()
-                exit = 0
-            case '4':
-                menu.clear_data()
-  
 
+        if menu_input == '0':
+            registration = Register("username", "password", "email", "ph_no", "address", "acc_type")
+            registration.register_user()
+            obfuscated_data = registration.data.copy()
+            obfuscated_data["password"] = "*" * len(registration.data["password"])
+            print("Registered Data:", obfuscated_data)
+        elif menu_input == '1':
+            username = input("Login Username: ")
+            password = input("Login Password: ")
+            conn = sqlite3.connect('olx.db')
+            login_attempt = Login(username, password, conn)
+            user_type, authenticated = login_attempt.check_authentication()
+            if authenticated:
+                print("Valid authentication")
+                if user_type == 'buyer':
+                    print("User type is 'buyer'. Proceeding to buyer menu.")
+                    buyer_menu = Buyer_Interface()
+                    buyer_menu.menu()
+                elif user_type == 'seller':
+                    print("User type is 'seller'. Proceeding to seller menu.")
+                    seller_menu = Seller_Interface()
+                    seller_menu.menu()
+                else:
+                    print("Invalid account type:", user_type)
+            else:
+                print("Invalid authentication")
+            conn.close()
+
+        elif menu_input == '2':
+            exit_program = True
+            print("The program is exiting now")
+        elif menu_input == '3':
+            print("Admin testing functionality\nEnter acc type\n")
+            acc_type = input()
+            if acc_type == 'buyer' or acc_type == 'seller':
+                if acc_type == 'buyer':
+                    buyer_menu = Buyer_Interface()
+                    buyer_menu.menu()
+                elif acc_type == 'seller':
+                    seller_menu = Seller_Interface()
+                    seller_menu.menu()
+            else:
+                print("Invalid account type")
+        elif menu_input == '4':
+            menu = Mainmenu(None)
+            menu.clear_data()
