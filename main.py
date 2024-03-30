@@ -1,11 +1,20 @@
+
 from getpass import getpass
 import time
-
+import datetime
 import re
+import sqlite3
 from getpass import getpass
+import hashlib
+
+# def connect_db():
+#         conn = sqlite3.connect('olx.db')
+#         return conn
+# conn = connect_db()
 
 class Register:
     def __init__(self, *args):
+        self.conn = sqlite3.connect('olx.db')
         self.data = {}
         self.get_user_input(args)
 
@@ -23,7 +32,7 @@ class Register:
                 self.data[variable] = getpass(f"Enter {variable}: ")
             elif variable.lower() == "ph_no":
                 while True:
-                    ph_no = input(f"Enter {variable}: ")
+                    ph_no = input(f"Enter {variable} (10 digits): ")
                     if ph_no.isdigit() and len(ph_no) == 10:
                         self.data[variable] = ph_no
                         break
@@ -39,15 +48,15 @@ class Register:
                         print("Invalid email format. Please enter a valid email.")
             elif variable.lower() == "username":
                 while True:
-                    username = input(f"Enter {variable}: ")
-                    if username.isalpha():
+                    username = input(f"Enter {variable} (alphanumeric): ")
+                    if username.isalnum():  # Allow alphanumeric usernames
                         self.data[variable] = username
                         break
                     else:
-                        print("Invalid username. Please enter only alphabetic characters.")
+                        print("Invalid username. Please enter alphanumeric characters only.")
             elif variable.lower() == "address":
                 while True:
-                    address = input(f"Enter {variable}: ")
+                    address = input(f"Enter {variable} (max 50 characters): ")
                     if len(address) <= 50:
                         self.data[variable] = address
                         break
@@ -55,22 +64,60 @@ class Register:
                         print("Address exceeds 50 characters. Please enter a shorter address.")
             else:
                 self.data[variable] = input(f"Enter {variable}: ")
-
+                
+    def register_user(self):
+        try:
+            hashed_password = hashlib.sha256(self.data['password'].encode()).hexdigest()
+            cursor = self.conn.cursor()
+            username = self.data['username']
+            email = self.data['email']
+            phone_number = self.data['ph_no']
+            user_type = self.data['acc_type']
+            registration_date = datetime.datetime.now()
+            cursor.execute("""
+                INSERT INTO Users (username, password, email, phone_number, user_type, registration_date)
+                VALUES (?, ?, ?, ?, ?, ?)
+            """, (username, hashed_password, email, phone_number, user_type, registration_date))
+            self.conn.commit()
+            print("Registration successful!")
+        except sqlite3.Error as e:
+            print("Registration failed:", e)
+        finally:
+            self.conn.close()
 
 
 class Login:
-    def __init__(self, username, password):
+    def __init__(self, username, password, conn=None):
         self.username = username
         self.password = password
+        self.conn = conn
 
-    def check_authentication(self, register_instance):
-        if (
-                self.username == register_instance.data.get("username")
-                and self.password == register_instance.data.get("password")
-        ):
-            return True
-        else:
-            return False
+    def hash_password(self, password):
+        return hashlib.sha256(password.encode()).hexdigest()
+
+    def check_authentication(self):
+        try:
+            hashed_password = self.hash_password(self.password)
+            print("Hashed password:", hashed_password)  # Debugging statement
+            cursor = self.conn.cursor()
+            cursor.execute("SELECT * FROM Users WHERE username = ?", (self.username,))
+            user_data = cursor.fetchone()
+            if user_data:
+                stored_password_hash = user_data[2]  # Assuming password hash is stored in the third column
+                if hashed_password == stored_password_hash:
+                    print("Authentication successful!")
+                    return user_data[4]  # Return user_type
+                else:
+                    print("Invalid password.")
+                    return None  # Return None for invalid password
+            else:
+                print("User not found.")
+                return None  # Return None for user not found
+        except sqlite3.Error as e:
+            print("Authentication failed:", e)
+            return None  # Return None for authentication failure
+
+
 
 
 class Mainmenu:
@@ -82,17 +129,36 @@ class Mainmenu:
             Buyer_Interface().menu()
         elif self.acc_type == 'seller':
             Seller_Interface().menu()
+            
+    def clear_data(self):
+        try:
+            conn = sqlite3.connect('olx.db')
+            cursor = conn.cursor()
+            # Execute SQL query to clear data from tables
+            cursor.execute("DELETE FROM Users")  # Example query to delete all data from the Users table
+            conn.commit()
+            print("Data cleared successfully.")
+        except sqlite3.Error as e:
+            print("Error clearing data:", e)
+        finally:
+            conn.close()
+
 
 
 class Buyer_Interface:
     def __init__(self):
         self.exit = 1
-        self.cart = set()
+        self.cart = set()  # Initialize cart as a set
         self.item_list = {"0": "Couch", "1": "Table", "2": "TV", "3": "Xbox", "4": "Bed"}
+        #Items list has been hardcoded which will later be linked to seller's item list
+
+    def goto_menu(self):
+        menu = Mainmenu('buyer')
+        menu.menu()
 
     def menu(self):
         while self.exit == 1:
-            menu_input = input('\nBuyer Interface navigator\n0 - View all items\n1 - Add item to cart\n2 - View cart\n3 - Purchase item\n')
+            menu_input = input('\nBuyer Interface navigator\n0 - View all items\n1 - Add item to cart\n2 - View cart\n3 - Purchase item\n4 - Start chat for item\n5 - Logout & Exit\n')
             match menu_input:
                 case '0':
                     self.print_items()
@@ -104,12 +170,19 @@ class Buyer_Interface:
                     self.purchase_items()
                 case '4':
                     self.chat()
+                case '5':
+                    print("Goodbye.")
+                    break
+                case _:
+                    print("Invalid menu item")
 
     def print_items(self):
         print("\nList of all items:\n")
         for x in self.item_list.keys():
             print(x + " > " + self.item_list[x])
 
+
+#This retains the key value pairs when added into the cart, so system can later distinguish between different products with the same name using their "PRODUCT ID" which would be the dictionary key
     def add_to_cart(self):
         self.print_items()
         item_index = input("\nEnter the index of the item to add to cart: ")
@@ -118,17 +191,19 @@ class Buyer_Interface:
             print(f"\n{self.item_list[item_index]} added to your cart.")
         else:
             print("Invalid item index.")
-
+    
     def view_cart(self):
-        if not self.cart:
+        if not self.cart: #checks for empty cart
             print("\nCart is empty")
         else:
             print("\nItems in your cart:")
             for item_index in self.cart:
                 print(self.item_list[item_index])
+                #prints only the values, but the keys are retained in the backend as well
 
     def purchase_items(self):
-        menu_input = input("\nWould you like to purchase one item from global market\nOr purchase the entire cart\n0 - Purchase one item\n1 - Purchase entire cart\n")
+        
+        menu_input=input("\nWould you like to purchase one item from global market\nOr purchase the entire cart\n0 - Purchase one item\n1 - Purchase entire cart\n")
         match menu_input:
             case '0':
                 self.print_items()
@@ -137,23 +212,51 @@ class Buyer_Interface:
                     print(f"{self.item_list[item_index]} successfully purchased! Thank you!")
                 else:
                     print("Invalid item index.")
+                
             case '1':
                 if not self.cart:
                     print("\nCart is empty. Add items before purchasing.")
                     return
+                
                 print("\nItems in your cart:")
                 for item_index in self.cart:
                     print(self.item_list[item_index])
+                
                 print("\nPurchase successful. Thank you for shopping!")
                 self.cart.clear()
             case _:
                 print("Invalid menu item")
-
+                
     def chat(self):
         self.print_items()
         item_index = input("Which product do you wish to start a chat regarding?: ")
-        print(f"Starting chat with product owner of {self.item_list[item_index]}\nType EXIT to exit from the chat and return to menu\n")
-
+        print(f"Starting chat with product owner of {self.item_list[item_index]}\n")
+        print("The listed price for this product is Rupees 250, you may attempt to negotiate by entering prices you deem fit")
+        print("Enter 0 if you wish to return to menu and end the chat")
+        target_price = 250  # Listed price
+        user_bid = float(input("Enter your initial bid: "))
+        print(int(user_bid))
+        if (int(user_bid!='0')):
+            for _ in range(3):
+                target_price = (target_price-(target_price-user_bid)/3)
+                print(f"I would offer: {target_price}")
+                user_bid = float(input("Enter your new bid: "))
+                if (int(user_bid)==int(target_price)):
+                    break
+            target_price = (target_price-(target_price-user_bid)/3)
+            print(f"The final price I'll offer is {target_price}, if you're okay with the price then type yes, else type no")
+            choice=input()
+            if (choice.lower()=='yes'):
+                choice=input(f"Are you sure you want to add {self.item_list[item_index]} to your cart?")
+                if (choice.lower()=='yes'):
+                    self.cart.add(item_index)
+                    print(f"\n{self.item_list[item_index]} added to your cart.")
+                else:
+                    self.goto_menu()
+            else:
+                self.goto_menu()
+        else:
+            self.goto_menu()
 
 class Seller_Interface:
     def __init__(self):
@@ -193,7 +296,7 @@ class Seller_Interface:
                                 v = self.auction[k]
                                 print(f"{i}: Bid Amount - {v[0]}, Bidder - {v[1]}, Location - {v[2]}")
                 case '3':
-                    print("Chatting...")
+                    self.chat()
                 case '4':
                     print("Updating a listing...")
                 case '5':
@@ -201,36 +304,104 @@ class Seller_Interface:
                 case _:
                     print("Invalid input. Please choose a valid option.")
 
+    def chat(self):
+        if not self.listing:
+            print("There are no items listed to start a chat.")
+            return
+
+        print("\nItems available for chat:")
+        for index, item_info in self.listing.items():
+            print(f"{index}: {item_info[0]} - Rs. {item_info[2]}")
+
+        try:
+            item_index = int(input("Select an item to start a chat: "))
+            if item_index not in self.listing:
+                print("Invalid item index.")
+                return
+        except ValueError:
+            print("Invalid input. Please enter a valid integer item index.")
+            return
+
+        print(f"Starting chat as seller for product: {self.listing[item_index][0]}")
+        print(f"The listed price for this product is Rs. {self.listing[item_index][2]}.")
+
+        buyer_offer = float(input("Enter the initial offer from the buyer: "))
+        if buyer_offer <= 0:
+            print("Invalid offer. Offer must be greater than 0.")
+            return
+
+        negotiation_round = 1
+        seller_price = 0
+        while negotiation_round <= 3:
+            if negotiation_round > 1:
+                print(f"\nNegotiation Round {negotiation_round}:")
+                buyer_offer = float(input("Enter the new offer from the buyer: "))
+                if buyer_offer <= 0:
+                    print("Invalid offer. Offer must be greater than 0.")
+                    return
+
+            seller_price = float(input("Enter your counteroffer price: "))
+            if seller_price <= buyer_offer:
+                print("Invalid counteroffer. Counteroffer price must be greater than the buyer's offer.")
+                return
+
+            print(f"Your counteroffer price is Rs. {seller_price}.")
+
+            choice = input("Do you want to continue negotiation? (yes/no): ")
+            if choice.lower() == 'no':
+                break
+
+            negotiation_round += 1
+
+        if negotiation_round > 3:
+            print("\nMaximum negotiation rounds reached. Negotiation failed.")
+            return
+
+        choice = input("Do you want to accept this offer? (yes/no): ")
+        if choice.lower() == 'yes':
+            print(f"\nProduct '{self.listing[item_index][0]}' sold at negotiated price of Rs. {seller_price}.")
+            del self.listing[item_index]  # Remove item from listing after it's sold
+        else:
+            print("Negotiation failed. Returning to menu...")
 
 if __name__ == "__main__":
     exit = 1
+    registration = None
+    menu = Mainmenu(None)
+
     while exit == 1:
-        menu_input = input('Enter the option you wish to execute\n0 - Register new user\n1 - Log in for an existing user\n2 - Exit\n3 - Admin testing\n')
+        menu_input = input('Enter the option you wish to execute\n0 - Register new user\n1 - Log in for an existing user\n2 - Exit\n3 - Admin testing\n4 - Clear data from database\n')
         match menu_input:
             case '0':
                 registration = Register("username", "password", "email", "ph_no", "address", "acc_type")
+                registration.register_user()
                 obfuscated_data = registration.data.copy()
                 obfuscated_data["password"] = "*" * len(registration.data["password"])
                 print("Registered Data:", obfuscated_data)
             case '1':
-                login_attempt = Login(
-                    input("Login Username: "), input("Login Password: ")
-                )
-                if login_attempt.check_authentication(registration):
+                username = input("Login Username: ")
+                password = input("Login Password: ")
+                conn = sqlite3.connect('olx.db')  # Open database connection
+                login_attempt = Login(username, password, conn)
+                user_type = login_attempt.check_authentication()
+                if user_type:
                     print("Valid authentication")
-                    menu = Mainmenu(registration.data['acc_type'])
+                    menu.acc_type = user_type
                     menu.menu()
                     exit = 0
                 else:
                     print("Invalid authentication")
+                    conn.close()  # Close database connection in case of authentication failure
             case '2':
                 exit = 0
                 print("The program is exiting now")
             case '3':
                 print("Admin testing functionality\nEnter acc type\n")
                 acc_type = input()
-                menu = Mainmenu(acc_type)
+                menu.acc_type = acc_type
                 menu.menu()
                 exit = 0
-            case _:
-                print("Invalid menu item")
+            case '4':
+                menu.clear_data()
+  
+
